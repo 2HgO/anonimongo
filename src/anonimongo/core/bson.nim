@@ -1,4 +1,4 @@
-import streams, tables, oids,  times
+import streams, tables, oids,  times, options
 import macros, endians
 from unicode import Rune, runes, `$`
 from strutils import parseHexInt, join, parseInt, toHex,
@@ -1040,3 +1040,41 @@ converter ofTimestamp*(b: BsonBase): TimestampInternal =
 
 template bson*(): untyped = bson({})
   ## Convenience for empty bson.
+
+converter toBson*(val: DateTime) : BsonBase =
+  if not val.isInitialized(): return bsonNull()
+  else: return val.toTime()
+
+converter toBson*[T](opt : Option[T]) : BsonBase =
+  if opt.isNone(): return bsonNull()
+  else: return opt.get()
+
+converter toBson*[T: not BsonBase](val : seq[T]) : BsonBase =
+  return cast[seq[BsonBase]](val)
+
+converter toBson*[T: ref | ptr](val : T) : BsonBase =
+  if val.isNil: return bsonNull()
+  else: return val[]
+
+converter toBsonEmbed*[T : tuple | object](obj : T) : BsonBase =
+  obj.toBson
+
+proc isDefault*[T : ref object](val : T) : bool =
+  val.isNil
+proc isDefault*[T : not ref object](val : T) : bool =
+  val == default(T)
+
+proc toBson*[T: tuple | object](obj: T): BsonDocument =
+  result = bson()
+  for k, v in obj.fieldPairs:
+    var key = k
+    var oe = false
+    when v.hasCustomPragma(bsonKey):
+      key = v.getCustomPragmaVal(bsonKey)
+    when v.hasCustomPragma(omitempty):
+      oe = true
+    var bsonVal : BsonBase = v
+    if (not ((bsonVal.isNil or (isDefault(v))) and oe)) and (key != "-"): result[key] = bsonVal
+
+proc newDoc*[T : object | ref object](obj : T) : seq[BsonDocument] =
+  @[obj.toBson]
